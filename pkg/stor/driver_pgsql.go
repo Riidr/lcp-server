@@ -9,5 +9,5 @@ import (
 
 func GormDialector(cnx string) gorm.Dialector {
 
-	return postgres.Open(cnx)
+	return postgres.Open("postgres://" + cnx)
 }

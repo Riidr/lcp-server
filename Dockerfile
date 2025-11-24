@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y gcc libc6-dev
 # source code into the container.
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=bind,target=. \
-    CGO_ENABLED=1 GOARCH=$TARGETARCH go build -o /app/server ./cmd/lcpserver2
+    CGO_ENABLED=0 GOARCH=$TARGETARCH go build -tags PGSQL -o /app/server ./cmd/lcpserver2
 
 ################################################################################
 # Create a new stage for running the application that contains the minimal
