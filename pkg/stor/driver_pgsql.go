@@ -10,5 +10,5 @@ import (
 
 func GormDialector(cnx string) gorm.Dialector {
 	log.Println("PostgreSQL database")
-	return postgres.Open(cnx)
+	return postgres.Open("postgres://" + cnx)
 }
