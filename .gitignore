@@ -4,6 +4,11 @@
 *.dll
 *.so
 *.dylib
+*.a
+
+# misc files
+*_prod.go
+*.h
 
 # Test binary, built with `go test -c`
 *.test
@@ -13,6 +18,15 @@
 
 # local debug directives
 .vscode/launch.json
+
+# local config and log files
+config/
+config-vm/
+logs/
+backups/
+
+# Environment variables
+.env
 
 # Dependency directories (remove the comment below to include it)
 # vendor/

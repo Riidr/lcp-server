@@ -17,14 +17,16 @@ import (
 
 // LCP Server configuration
 type Config struct {
-	LogLevel      string `yaml:"log_level"` // "debug", "info", "warn", "error"
-	PublicBaseUrl string `yaml:"public_base_url"`
+	LogLevel      string `yaml:"loglevel"` // "debug", "info", "warn", "error"
+	PublicBaseUrl string `yaml:"publicbaseurl"`
 	Port          int    `yaml:"port"`
 	Dsn           string `yaml:"dsn"`
 	Access        `yaml:"access"`
 	Certificate   `yaml:"certificate"`
 	License       `yaml:"license"`
 	Status        `yaml:"status"`
+	Dashboard     `yaml:"dashboard"`
+	JWT           `yaml:"jwt"`
 	Resources     string `yaml:"resources"`
 }
 
@@ -39,9 +41,9 @@ type Certificate struct {
 }
 
 type License struct {
-	Provider string `yaml:"provider"  envconfig:"license_provider"`   // URI
-	Profile  string `yaml:"profile"  envconfig:"license_profile"`     // standard profile URI
-	HintLink string `yaml:"hint_link"  envconfig:"license_hint_link"` // URL
+	Provider string `yaml:"provider"  envconfig:"license_provider"`  // URI
+	Profile  string `yaml:"profile"  envconfig:"license_profile"`    // default profile URI
+	HintLink string `yaml:"hint_link"  envconfig:"license_hintlink"` // URL
 }
 
 type Status struct {
@@ -50,6 +52,16 @@ type Status struct {
 	RenewDefaultDays            int    `yaml:"renew_default_days" envconfig:"status_renewdefaultdays"`
 	RenewMaxDays                int    `yaml:"renew_max_days" envconfig:"status_renewmaxdays"`
 	RenewLink                   string `yaml:"renew_link" envconfig:"status_renewlink"`
+}
+
+type Dashboard struct {
+	ExcessiveSharingThreshold int  `yaml:"excessive_sharing_threshold" envconfig:"dashboard_excessivesharingthreshold"`
+	LimitToLast12Months       bool `yaml:"limit_to_last_12_months" envconfig:"dashboard_limittolast12months"`
+}
+
+type JWT struct {
+	SecretKey string            `yaml:"secret_key" envconfig:"jwt_secretkey"`
+	Admin     map[string]string `yaml:"admin" envconfig:"jwt_admin"` // list of admin usernames and passwords
 }
 
 func Init(configFile string) (*Config, error) {
@@ -66,9 +78,9 @@ func Init(configFile string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-
+		log.Println("Configuration file", configFile)
 	} else {
-		log.Println("failed to find the configuration file ", configFile)
+		log.Println("No configuration file provided, using environment variables and defaults")
 	}
 
 	// Process environment variables
@@ -84,15 +96,62 @@ func Init(configFile string) (*Config, error) {
 			return nil, err
 		}
 		lines := strings.Split(string(data), "\n")
+		var tuple []string
+		if len(lines) >= 1 {
+			// the first line is the username and password used to access the server using basic auth (private routes).
+			// it overrides any value set in the configuration file or environment variables.
+			tuple = strings.Split(string(lines[0]), ":")
+			if len(tuple) == 2 {
+				c.Access.Username = strings.TrimSpace(tuple[0])
+				c.Access.Password = strings.TrimSpace(tuple[1])
+			}
+		}
 		if len(lines) >= 2 {
-			c.Access.Username = lines[0]
-			c.Access.Password = lines[1]
+			// next lines are usernames and passwords used to access the server using JWT (dashboard).
+			// it completes any value set in the configuration file or environment variables.
+			for _, line := range lines[1:] {
+				tuple = strings.Split(string(line), ":")
+				if len(tuple) == 2 {
+					username := strings.TrimSpace(tuple[0])
+					password := strings.TrimSpace(tuple[1])
+					if username != "" && password != "" {
+						// Initialize map if nil
+						if c.JWT.Admin == nil {
+							c.JWT.Admin = make(map[string]string)
+						}
+						c.JWT.Admin[username] = password
+					}
+				}
+			}
 		}
 	}
 
 	// Set some defaults
 	if c.Port == 0 {
 		c.Port = 8989
+	}
+	if c.Dashboard.ExcessiveSharingThreshold == 0 {
+		c.Dashboard.ExcessiveSharingThreshold = 1
+	}
+	if c.JWT.SecretKey == "" {
+		c.JWT.SecretKey = "default_jwt_secret_key_please_change_in_production"
+	}
+
+	// Initialize JWT.Admin map if nil
+	if c.JWT.Admin == nil {
+		c.JWT.Admin = make(map[string]string)
+	}
+
+	// Set default dashboard account if none configured
+	if len(c.JWT.Admin) == 0 {
+		c.JWT.Admin["admin"] = "supersecret"
+		log.Println("⚠️  No dashboard account configured, using default account: admin/supersecret")
+	}
+
+	// Log configured dashboard accounts (without passwords for security)
+	log.Printf("📋 Configured dashboard accounts: %d", len(c.JWT.Admin))
+	for name := range c.JWT.Admin {
+		log.Printf("   - %s", name)
 	}
 
 	return &c, nil

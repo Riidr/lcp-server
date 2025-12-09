@@ -2,11 +2,12 @@
 
 This is a major evolution of the Readium LCP Server available on https://github.com/readium/readium-lcp-server. Because it is not an incremental evolution, and because this codebase is entirely maintained by EDRLab, we decided to create a new repository on the EDRLab Github space. 
 
-**Note: This project is still not ready for production. We are currently testing it on a demo plateform before release.**
+**Note: This project is almost ready for production. We are currently testing it on a demo plateform before release.**
+**But the project still lacks documentation. We will work on it asap** 
 
-V2 requires go 1.16 or higher, due to the use of new features of the `os` package. It is currently developed using go 1.24. 
+### lcpserver
 
-The `lcpserver2`:
+The `lcpserver`:
 
 - Receives notifications for each encryption of a publication.
 - Serves LCP licenses for these publications. 
@@ -14,15 +15,65 @@ The `lcpserver2`:
 
 Licenses can be verified using a separate command line executable, developed in the same repository and named `lcpchecker`. 
 
-An additional executable will soon be added to this set, named `lcpencrypt`. This tool will be able to encrypt a publication, publish the encrypted publication at a location given as a parameter, and notify the lcpserver of the availability of this new asset. `lcpencrypt` will be both available as a command line utility and a web service. 
+### lcpencrypt
 
-A lightweight content management server will also be released, named `pubstore`, which will be connected to the lcp-server and will be useful for testing  `lcpserver` in a live environment.
+`lcpencrypt`:
 
-Before these tools are available, the current Encryption Tool is usable with this new lcp-server.
+- Is both available as a command line utility and a server tied to a watch folder:
+- Encrypts EPUBs, PDF documents, and packaged Web Publications.
+- Stores encrypted publications at a location given as a parameter.
+- Notifies the LCP Server of the availability of this new asset. 
+
+### lcpchecker
+
+`lcpchecker` verifies the compliance of an LCP license with the LCP specification and the LSD protocol. 
+
+### Other tools
+
+#### PubStore
+This lightweight content management system named `pubstore` manages publications and users, the generation of LCP licenses when a user acquires publications, and the change of status of a license. It is useful for testing  `lcpserver` in a live environment.
+
+#### LCP Server Dashboard
+The lighweight dashboard server named `lcpdashboard` offers metrics on the LCP Server, displays oversharded licenses and allows admins to revoke overshared licenses. In can be used in production to manage an LCP Server.   
+
+## Install
+
+Assuming a working Go installation (Go 1.24 or higher) ... 
+
+```sh
+# fetch, build and install the different packages and their dependencies
+go install github.com/edrlab/lcp-server/cmd/lcpserver@latest
+go install github.com/edrlab/lcp-server/cmd/lcpencrypt@latest
+go install github.com/edrlab/lcp-server/cmd/lcpchecker@latest
+```
+
+If you wish to prepare an installation in production mode, you must first clone the software. 
+
+Create a working folder (ex. lcp-server), and from this folder, enter:
+
+```sh
+git clone https://github.com/edrlab/lcp-server.git
+```
+
+Option 1: For testing the lcpserver application without compiling it, use:
+
+```sh
+cd cmd/lcpserver
+go run server.go router.go authenticator.go
+```
+
+Option 2: For compiling the lcpserver application, use:
+
+```sh
+# Compile and create the binary in the Go bin folder
+go build -o $GOPATH/bin  ./cmd/lcpserver2
+# Launch the application
+lcpserver2
+```
 
 ## Configuration
 
-The configuration is similar to the v1 config, but largely simplified. 
+The configuration is similar to the LCP Server V1 config, but largely simplified. 
 
 The configuration of the server is kept both in a configuration file and in environment variables. It is possible to mix both sets;  environment variables are expressly recommended for confidential information. 
 
@@ -73,6 +124,12 @@ status:
   # must be templated using {license_id} as parameter
   renew_link: "http://localhost:8989/renew/{license_id}"
 
+dashboard:
+  # configurable threshold for licenses with excessive sharing (default is 6)
+  excessive_sharing_threshold: 10
+  # optional limit to last 12 months (default is false)
+  limit_to_last_12_months: true
+
 # path to the X509 certificate and private key used for signing licenses
 certificate:
   cert:       "/Users/x/test/cert/cert-edrlab-test.pem"
@@ -83,19 +140,7 @@ The test certificate is provided in the /test/cert folder on the project.
 
 ## Usage
 
-From the `lcp-server` folder ...
 
-For testing the lcpserver application you can simply use:
-
-> go run cmd/lcpserver2/server.go
-
-For compiling and installing the application in the bin folder, use: 
-
-> go install cmd/lcpserver2/server.go
-
-or, if your forked the codebase:
-
-> go build -o $GOPATH/bin  ./cmd/lcpserver2
 
 ## API calls
 
@@ -289,6 +334,9 @@ You can also:
 
 Where <LicenseID> is the uuid used for the creation of the license. 
 
+### Dashboard
+
+
 ## Development choices
 We wanted to develop this new version of the LCP Server around three principles:
 
@@ -297,7 +345,7 @@ We wanted to develop this new version of the LCP Server around three principles:
 - A complete set of unit tests.
 
 ### Chi
-There are plenty of routers in Go land. Gin and Chi are two performant pieces of software among others. Gin seems to be the most popular these days, but we have finally chosen *Chi* for this development for its stability over time, its compatibility with net/http and its clean "render" helpers. Note that Chi supports JWT authentication and OAuth2 autorisation, which will be useful later.
+There are plenty of routers in Go land. Gin and Chi are two performant pieces of software among others. Gin seems to be the most popular these days, but we have finally chosen *Chi* for this development for its stability over time, its compatibility with net/http and its clean "render" helpers. Chi supports JWT authentication and OAuth2 autorisation, which will be useful.
 
 Project home: https://go-chi.io/#/
 
@@ -310,8 +358,11 @@ On August 2022:
 ### GORM
 Working with an ORM abstracts us from low-level storage code and is especially useful for software which must be adapted to different database solutions.  
 
-Gorm officially supports the following databases: SQLite, MySQL, PostgreSQL, SQL Server. An Oracle driver is available as an open PR on the Gorm Github (may 2021). 
+Gorm officially supports the following databases: SQLite, MySQL, PostgreSQL, SQL Server, Oracle, GaussDB, TiDB, Clickhouse. Using a compatible databases (e.g. MariaDB) should not be an issue. 
 
 Note: The proper driver must be included in the codebase and the codebase recompiled for a given database to be usable. See: [https://gorm.io/docs/connecting_to_the_database.html](https://gorm.io/docs/connecting_to_the_database.html) 
 
-The open-source codebase is provided with an **sqlite** driver. It is up to integrators to replace it by the driver of their choice if sqlite does not fit their needs.
+The open-source codebase is provided with **SQLite**, **MySQL** and **PostgresQL** drivers. The default is sqlite. It is up to integrators to replace it by the driver of their choice if sqlite does not fit their needs.
+
+This is achieved by adding a tag at build time: 
+> go build -tags MYSQL -o $GOPATH/bin/lcpserver2  ./cmd/lcpserver

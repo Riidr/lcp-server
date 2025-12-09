@@ -28,12 +28,14 @@ type (
 	publicationStore dbStore
 	licenseStore     dbStore
 	eventStore       dbStore
+	dashboardStore   dbStore
 
 	// Store interface, giving access to specialized interfaces
 	Store interface {
 		Publication() PublicationRepository
 		License() LicenseRepository
 		Event() EventRepository
+		Dashboard() DashboardRepository
 	}
 
 	// PublicationRepository interface, defining publication operations
@@ -73,6 +75,12 @@ type (
 		Update(e *Event) error
 		Delete(e *Event) error
 	}
+
+	// DashboardRepository interface, defining dashboard operations
+	DashboardRepository interface {
+		GetDashboard(excessiveSharingThreshold int, limitToLast12Months bool) (*DashboardData, error)
+		GetOversharedLicenses(excessiveSharingThreshold int, limitToLast12Months bool) ([]OversharedLicenseData, error)
+	}
 )
 
 // implementation of the different repository interfaces
@@ -86,6 +94,11 @@ func (s *dbStore) License() LicenseRepository {
 
 func (s *dbStore) Event() EventRepository {
 	return (*eventStore)(s)
+}
+
+// Dashboard implements Store.
+func (s *dbStore) Dashboard() DashboardRepository {
+	return (*dashboardStore)(s)
 }
 
 // List of status values as strings
@@ -112,11 +125,8 @@ func Init(dsn string) (Store, error) {
 		return nil, fmt.Errorf("incorrect database source name: %q", dsn)
 	}
 
-	// the use of time.Time fields for mysql requires parseTime
-	if dialect == "mysql" && !strings.Contains(cnx, "parseTime") {
-		return nil, fmt.Errorf("incomplete mysql database source name, parseTime required: %q", dsn)
-	}
-	// Any constraint for other databases?
+	// add parameters specific to the dialect
+	cnx = addParamsDialectSpecific(cnx, dialect)
 
 	// database logger
 	newLogger := logger.New(
@@ -161,6 +171,24 @@ func dbFromURI(uri string) (string, string) {
 		return "error", ""
 	}
 	return parts[0], parts[1]
+}
+
+// addParamsDialectSpecific takes a connection string and adds parameters specific to the SQL dialect
+func addParamsDialectSpecific(cnx, dialect string) string {
+	switch dialect {
+	case "sqlite3":
+		cnx += "?cache=shared&mode=rwc"
+	case "mysql":
+		// tls false to overcome the use of a self-signed certificates on a mysql docker container
+		cnx += "?charset=utf8mb4&parseTime=True&loc=Local&tls=false"
+	case "postgres":
+		cnx += "?sslmode=disable"
+	case "mssql":
+		// nothing , so far
+	default:
+		log.Printf("Invalid dialect: %s", dialect)
+	}
+	return cnx
 }
 
 // performDialectSpecific
