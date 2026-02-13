@@ -1,0 +1,35 @@
+---
+description: Project overview and architecture for the LCP Server codebase
+alwaysApply: true
+---
+
+# LCP Server — Project Overview
+
+This is EDRLab's Readium **LCP (Licensed Content Protection) Server**, a Go application for managing DRM licenses for digital publications (EPUB, PDF, audiobooks, web publications).
+
+## Executables
+
+- `cmd/lcpserver` — HTTP server: generates/serves LCP licenses, handles LSD protocol
+- `cmd/lcpencrypt` — CLI/server: encrypts publications, notifies lcpserver
+- `cmd/lcpchecker` — Validates LCP license compliance
+
+## Architecture Layers
+
+```
+cmd/lcpserver/     → HTTP layer (Chi router, middleware, auth)
+pkg/api/           → API handlers (publications, licenses, status docs, dashboard)
+pkg/lic/           → Business logic (license generation, signing, LSD operations)
+pkg/stor/          → Storage layer (GORM models, SQLite/MySQL/PostgreSQL)
+pkg/conf/          → Configuration (YAML + env vars + Docker secrets)
+pkg/crypto/        → Encryption (AES-CBC/GCM, key wrapping)
+pkg/sign/          → Digital signing (X.509 RSA-SHA256)
+pkg/check/         → License validation + JSON schemas
+```
+
+## Key Tech
+
+- **Go 1.24+**, Chi router, GORM ORM, Logrus logging
+- **Auth**: Basic Auth (API) + JWT/HS256 (dashboard)
+- **Crypto**: AES-256-CBC for content encryption, X.509 certificate signing
+- **DB**: SQLite (default), MySQL/PostgreSQL via build tags (`MYSQL`, `POSTGRES`)
+- **Config**: YAML files + `LCPSERVER_*` env vars + Docker secrets
