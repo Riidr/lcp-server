@@ -57,6 +57,7 @@ func (a *APICtrl) SearchPublications(w http.ResponseWriter, r *http.Request) {
 			contentType = "application/pdf"
 		case "lcpdf":
 			contentType = "application/pdf+lcp"
+		case "lcpa":
 		case "lcpau":
 			contentType = "application/audiobook+lcp"
 		case "lcpdi":
@@ -119,7 +120,6 @@ func (a *APICtrl) CreatePublication(w http.ResponseWriter, r *http.Request) {
 
 // GetPublication returns a specific publication
 func (a *APICtrl) GetPublication(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Get Publication")
 
 	var publication *stor.Publication
 	var err error
@@ -130,8 +130,10 @@ func (a *APICtrl) GetPublication(w http.ResponseWriter, r *http.Request) {
 	} else {
 		render.Render(w, r, ErrInvalidRequest(errors.New("missing required publication ID")))
 	}
-	if err != nil {
-		render.Render(w, r, ErrInvalidRequest(errors.New("invalid publication ID")))
+
+	// if the publication has been soft-deleted, it is considered not found
+	if err != nil || publication.DeletedAt.Valid {
+		render.Render(w, r, ErrNotFound)
 		return
 	}
 	if err := render.Render(w, r, NewPublicationResponse(publication)); err != nil {
@@ -140,9 +142,31 @@ func (a *APICtrl) GetPublication(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetPublicationByAltID returns a specific publication by its alternative ID
+func (a *APICtrl) GetPublicationByAltID(w http.ResponseWriter, r *http.Request) {
+
+	var publication *stor.Publication
+	var err error
+
+	if altID := chi.URLParam(r, "altID"); altID != "" {
+		publication, err = a.Store.Publication().GetByAltID(altID)
+	} else {
+		render.Render(w, r, ErrInvalidRequest(errors.New("missing required Alt ID")))
+	}
+	// if the publication has been soft-deleted, it is considered not found
+	if err != nil || publication.DeletedAt.Valid {
+		render.Render(w, r, ErrNotFound)
+		return
+	}
+	log.Debugf("Publication ID: %s", publication.UUID)
+	if err := render.Render(w, r, NewPublicationResponse(publication)); err != nil {
+		render.Render(w, r, ErrRender(err))
+		return
+	}
+}
+
 // UpdatePublication updates an existing Publication in the database.
 func (a *APICtrl) UpdatePublication(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Update Publication")
 
 	// get the payload
 	data := &PublicationRequest{}
@@ -157,17 +181,20 @@ func (a *APICtrl) UpdatePublication(w http.ResponseWriter, r *http.Request) {
 
 	// get the existing publication
 	if publicationID := chi.URLParam(r, "publicationID"); publicationID != "" {
+		log.Debugf("Update Publication: %s", publicationID)
 		publication, err = a.Store.Publication().Get(publicationID)
 	} else {
 		render.Render(w, r, ErrInvalidRequest(errors.New("missing required publication ID"))) // publicationID is nil
 		return
 	}
-	if err != nil {
-		render.Render(w, r, ErrInvalidRequest(errors.New("invalid publication ID")))
+	// if the publication has been soft-deleted, it is considered not found
+	if err != nil || publication.DeletedAt.Valid {
+		render.Render(w, r, ErrNotFound)
 		return
 	}
 
 	// set updated fields
+	publication.AltID = pubUpdates.AltID
 	publication.Provider = pubUpdates.Provider
 	publication.Title = pubUpdates.Title
 	publication.Authors = pubUpdates.Authors
@@ -193,7 +220,6 @@ func (a *APICtrl) UpdatePublication(w http.ResponseWriter, r *http.Request) {
 
 // DeletePublication removes an existing Publication from the database.
 func (a *APICtrl) DeletePublication(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Delete Publication")
 
 	var publication *stor.Publication
 	var err error
@@ -206,8 +232,9 @@ func (a *APICtrl) DeletePublication(w http.ResponseWriter, r *http.Request) {
 		render.Render(w, r, ErrInvalidRequest(errors.New("missing required publication ID"))) // publicationID is nil
 		return
 	}
-	if err != nil {
-		render.Render(w, r, ErrInvalidRequest(errors.New("invalid publication ID")))
+	// if the publication has been soft-deleted, it is considered not found
+	if err != nil || publication.DeletedAt.Valid {
+		render.Render(w, r, ErrNotFound)
 		return
 	}
 

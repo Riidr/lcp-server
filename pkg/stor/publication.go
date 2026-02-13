@@ -7,6 +7,8 @@ package stor
 import (
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/go-playground/validator/v10"
 	"gorm.io/gorm"
 )
@@ -15,14 +17,17 @@ import (
 type Publication struct {
 	gorm.Model
 	CreatedAt     time.Time `gorm:"index"` // index on created_at, useful for dashboard queries
-	UUID          string    `json:"uuid" validate:"omitempty,uuid" gorm:"type:varchar(100);uniqueIndex"`
 	Provider      string    `json:"provider,omitempty" validate:"omitempty,url" gorm:"type:varchar(255)"`
-	Title         string    `json:"title,omitempty" validate:"required"`
+	UUID          string    `json:"uuid" validate:"omitempty,uuid" gorm:"type:varchar(100);uniqueIndex"`
+	AltID         string    `json:"alt_id,omitempty" validate:"omitempty" gorm:"type:varchar(255);index"`
+	ContentType   string    `json:"content_type" validate:"required" gorm:"type:varchar(100);index"`
+	Title         string    `json:"title" validate:"required"`
+	Description   string    `json:"description,omitempty"`
 	Authors       string    `json:"authors,omitempty"`
+	Publishers    string    `json:"publishers,omitempty"`
 	CoverUrl      string    `json:"cover_url,omitempty" validate:"omitempty,url" gorm:"type:varchar(1024)"`
 	EncryptionKey []byte    `json:"encryption_key" validate:"required"`
 	Href          string    `json:"href" validate:"required,http_url" gorm:"type:varchar(1024)"`
-	ContentType   string    `json:"content_type" validate:"required" gorm:"type:varchar(100);index"`
 	Size          uint32    `json:"size" validate:"required,number"`
 	Checksum      string    `json:"checksum" validate:"required,base64" gorm:"type:varchar(255)"`
 }
@@ -36,15 +41,15 @@ func (p *Publication) Validate() error {
 
 func (s publicationStore) ListAll() (*[]Publication, error) {
 	publications := []Publication{}
-	// security: limited to 1000 results
-	return &publications, s.db.Limit(1000).Order("id ASC").Find(&publications).Error
+	// security: limited to 1000 results, in descending order of ID to have a stable order
+	return &publications, s.db.Limit(1000).Order("id DESC").Find(&publications).Error
 }
 
 func (s publicationStore) List(pageNum, pageSize int) (*[]Publication, error) {
 	publications := []Publication{}
 	// pageNum starts at 1
 	// result sorted to assure the same order for each request
-	return &publications, s.db.Offset((pageNum - 1) * pageSize).Limit(pageSize).Order("id ASC").Find(&publications).Error
+	return &publications, s.db.Offset((pageNum - 1) * pageSize).Limit(pageSize).Order("id DESC").Find(&publications).Error
 }
 
 func (s publicationStore) FindByType(contentType string) (*[]Publication, error) {
@@ -58,8 +63,26 @@ func (s publicationStore) Count() (int64, error) {
 }
 
 func (s publicationStore) Get(uuid string) (*Publication, error) {
+	// it is important to use Unscoped() here to be able to retrieve publications that have been soft-deleted.
+	// licenses may still refer to publications that have been deleted, and fresh licenses must be generated for them.
 	var publication Publication
-	return &publication, s.db.Where("uuid = ?", uuid).First(&publication).Error
+	return &publication, s.db.Unscoped().Where("uuid = ?", uuid).First(&publication).Error
+}
+
+func (s publicationStore) GetByAltID(altID string) (*Publication, error) {
+	// Unscoped() is used here also to retrieve publications that have been soft-deleted. 
+	// There may be several publications identified by the same AltId if some were soft-deleted; 
+	// this is why the request orders the results by date created desc, so that the latest one,
+	// the only one potentially not deleted, is retained.
+	// TODO: consider adding a filter on the provider as well, to allow multiple publications with the same AltID from different providers. Problem: the API endpoint is called as a GET, with the altid as unique parameter (/publications/altid/xxx); potential evolution = /publications/altid/provider:xxx.  
+	var publication Publication
+	// debug: list all publications with this AltID
+	var publications []Publication
+	s.db.Unscoped().Where("alt_id = ?", altID).Order("created_at DESC").Find(&publications)
+	for _, pub := range publications {
+		log.Debugf("Publication with AltID %s: UUID=%s, Provider=%s, CreatedAt=%v, DeletedAt=%v", altID, pub.UUID, pub.Provider, pub.CreatedAt, pub.DeletedAt)
+	}
+	return &publication, s.db.Unscoped().Where("alt_id = ?", altID).Order("created_at DESC").First(&publication).Error
 }
 
 func (s publicationStore) Create(newPublication *Publication) error {

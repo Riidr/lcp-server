@@ -207,12 +207,14 @@ func mapContentTypeToDisplayName(contentType string) string {
 }
 
 type OversharedLicenseData struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	User    string `json:"user"`
-	Type    string `json:"type"`
-	Status  string `json:"status"`
-	Devices int    `json:"devices"`
+	ID      			string `json:"id"`
+	PublicationID string `json:"publicationId"`
+	AltID         string `json:"altId"`
+	Title         string `json:"title"`
+	UserID        string `json:"userId"`
+	Type    			string `json:"type"`
+	Status  			string `json:"status"`
+	Devices 			int    `json:"devices"`
 }
 
 // GetOversharedLicenses provides a list of licenses that have been shared across multiple devices.
@@ -223,8 +225,10 @@ func (s dashboardStore) GetOversharedLicenses(excessiveSharingThreshold int, lim
 	query := s.db.Table("license_infos").
 		Select(`
 			license_infos.uuid as id,
+			license_infos.publication_id as publication_id,
+			publications.alt_id as alt_id,
 			publications.title as title,
-			license_infos.user_id as user,
+			license_infos.user_id as user_id,
 			CASE WHEN license_infos.end IS NULL THEN 'loan' ELSE 'buy' END as type,
 			license_infos.status as status,
 			license_infos.device_count as devices

@@ -137,7 +137,7 @@ func (c *LicenseChecker) CheckRenew() error {
 	}
 
 	if c.statusDoc.PotentialRights == nil || c.statusDoc.PotentialRights.End == nil {
-		log.Info("The license has no max end date, unlimited renewal is allowed")
+		log.Warning("The license has no max end date, unlimited renewal is allowed")
 	} else {
 		log.Info("The max end date for renewal is ", c.statusDoc.PotentialRights.End.Format(time.RFC822))
 	}
@@ -157,35 +157,43 @@ func (c *LicenseChecker) CheckRenew() error {
 	defer r.Body.Close()
 
 	// process the response
-	_ = c.ProcessResponse(r) // let's continue the tests
+	err = c.ProcessResponse(r)
+	// let's continue the tests if there was an error
+	// especially if there was an attempt to renew with a date before the current end date
+	if err == nil {
+		// check the new status of the license
+		if c.statusDoc.Status != "active" {
+			log.Error("The new status should be active, not ", c.statusDoc.Status)
+		} else {
+			log.Info("License extension successful")
+		}
 
-	// check the new status of the license
-	if c.statusDoc.Status != "active" {
-		log.Error("The new status should be active, not ", c.statusDoc.Status)
-	} else {
-		log.Info("License extension successful")
+		// 1/2sc pause
+		time.Sleep(500 * time.Millisecond)
+
+		// fetch the fresh license and check that it has been correctly updated
+		err = c.GetFreshLicense()
+		if err != nil {
+			log.Error("Failed to get the fresh license: ", err)
+			return nil
+		} else {
+			// the fresh license must have an update timestamp
+			if c.license.Updated == nil {
+				log.Error("The fresh license update timestamp is absent")
+				return nil
+			}
+			// if the license time has been updated, it was necessarily during the last 2 seconds
+			freshUpdate := time.Now().Add(-2 * time.Second)
+			if c.license.Updated.Before(freshUpdate) {
+				log.Error("The fresh license update timestamp was not properly updated")
+			}
+			log.Info("The license end timestamp is now ", c.license.Rights.End.Truncate(time.Second).Format(time.RFC822))
+		}
 	}
 
-	// 1/2sc pause
-	time.Sleep(500 * time.Millisecond)
-
-	// fetch the fresh license and check that it has been correctly updated
-	err = c.GetFreshLicense()
-	if err != nil {
-		log.Error("Failed to get the fresh license: ", err)
+	// if there is no max end date, do not request additional extensions
+	if c.statusDoc.PotentialRights == nil || c.statusDoc.PotentialRights.End == nil {
 		return nil
-	} else {
-		// the fresh license must have an update timestamp
-		if c.license.Updated == nil {
-			log.Error("The fresh license update timestamp is absent")
-			return nil
-		}
-		// if the license time has been updated, it was necessarily during the last 2 seconds
-		freshUpdate := time.Now().Add(-2 * time.Second)
-		if c.license.Updated.Before(freshUpdate) {
-			log.Error("The fresh license update timestamp was not properly updated")
-		}
-		log.Info("The license end timestamp is now ", c.license.Rights.End.Truncate(time.Second).Format(time.RFC822))
 	}
 
 	// 1/2sc pause
@@ -227,6 +235,9 @@ func (c *LicenseChecker) CheckRenew() error {
 	if err == nil {
 		log.Error("License extension with a wrong end date should fail")
 	}
+
+	// 1/2sc pause
+	time.Sleep(500 * time.Millisecond)
 
 	// request an extension of the license after the max end date
 	// and check that the server responds with an error

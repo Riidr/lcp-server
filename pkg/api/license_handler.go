@@ -15,11 +15,16 @@ import (
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
+	"github.com/jtacoma/uritemplates"
 	log "github.com/sirupsen/logrus"
 )
 
 // GenerateLicense creates a license in the db and returns a fresh license
 func (a *APICtrl) GenerateLicense(w http.ResponseWriter, r *http.Request) {
+
+	// get the optional query parameter
+	queryParams := r.URL.Query()
+	returnLink := queryParams.Get("link")
 
 	// get the payload
 	licRequest := &LicenseRequest{}
@@ -34,17 +39,27 @@ func (a *APICtrl) GenerateLicense(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if licRequest.PublicationID != "" {
 		pubInfo, err = a.Store.Publication().Get(licRequest.PublicationID)
+	} else if licRequest.AltID != "" {
+		pubInfo, err = a.Store.Publication().GetByAltID(licRequest.AltID)
+		// set the publication ID in the request for further processing
+		licRequest.PublicationID = pubInfo.UUID
 	} else {
 		render.Render(w, r, ErrInvalidRequest(errors.New("missing required publication identifier in payload")))
 		return
 	}
+	// error if the database request was not successful
 	if err != nil {
 		render.Render(w, r, ErrInvalidRequest(errors.New("invalid publication ID")))
 		return
 	}
+	// error if the publication has been soft-deleted
+	if pubInfo.DeletedAt.Valid {
+		render.Render(w, r, ErrInvalidRequest(errors.New("the publication has been previously deleted")))
+		return
+	}
 
 	// set license info
-	licInfo := newLicenseInfo(a.Config.License.Provider, licRequest)
+	licInfo := newLicenseInfo(a.Config.License.Provider, a.Config.Status.RenewMaxDays, licRequest)
 
 	// store license info
 	err = a.Store.License().Create(licInfo)
@@ -75,6 +90,7 @@ func (a *APICtrl) GenerateLicense(w http.ResponseWriter, r *http.Request) {
 	// generate the license
 	license, err := lic.NewLicense(a.Config, a.Cert, pubInfo, licInfo, &userInfo, &encryption, licRequest.PassHash)
 	if err != nil {
+		log.Errorf("Failed generating a license: %v", err)
 		render.Render(w, r, ErrServer(err))
 		return
 	}
@@ -82,9 +98,29 @@ func (a *APICtrl) GenerateLicense(w http.ResponseWriter, r *http.Request) {
 	log.Printf("New license %s generated on %s", license.UUID, license.Issued.Format(time.RFC822))
 
 	render.Status(r, http.StatusCreated)
-	if err = render.Render(w, r, NewLicenseResponse(license)); err != nil {
-		render.Render(w, r, ErrRender(err))
-		return
+
+	// return a download link as a Location header
+	if returnLink == "true" {
+		flt := a.Config.Status.FreshLicenseLink
+		template, _ := uritemplates.Parse(flt)
+		values := make(map[string]interface{})
+		values["license_id"] = license.UUID
+		expanded, err := template.Expand(values)
+		if err != nil {
+			log.Printf("failed to expand the fresh license link: %s", template)
+			render.Render(w, r, ErrServer(err))
+			return
+		}
+		// set http 303 See Other with Location header
+		w.Header().Set("Location", expanded)
+		w.WriteHeader(http.StatusSeeOther)
+		
+	// return the license
+	} else {
+		if err = render.Render(w, r, NewLicenseResponse(license)); err != nil {
+			render.Render(w, r, ErrRender(err))
+			return
+		}
 	}
 }
 
@@ -156,7 +192,7 @@ func (a *APICtrl) FreshLicense(w http.ResponseWriter, r *http.Request) {
 }
 
 // newLicenseInfo sets license info from request parameters
-func newLicenseInfo(provider string, licRequest *LicenseRequest) *stor.LicenseInfo {
+func newLicenseInfo(provider string, renewMaxDays int, licRequest *LicenseRequest) *stor.LicenseInfo {
 
 	noLimit := int32(-1) // -1 stored for no print/copy limits
 	if licRequest.Copy == nil {
@@ -177,6 +213,11 @@ func newLicenseInfo(provider string, licRequest *LicenseRequest) *stor.LicenseIn
 		Print:         *licRequest.Print,
 		Status:        stor.STATUS_READY,
 	}
+	if licInfo.End != nil {
+	maxEnd := licInfo.End.AddDate(0, 0, renewMaxDays)
+	licInfo.MaxEnd = &maxEnd
+	}
+
 	return &licInfo
 }
 
@@ -188,7 +229,8 @@ func newLicenseInfo(provider string, licRequest *LicenseRequest) *stor.LicenseIn
 // TODO: add an extension point for custom user properties, that have to
 // be returned in the license, optionally encrypted.
 type LicenseRequest struct {
-	PublicationID string     `json:"publication_id" validate:"required,uuid"`
+	PublicationID string     `json:"publication_id" validate:"omitempty,uuid"`
+	AltID         string     `json:"alt_id,omitempty"`
 	UserID        string     `json:"user_id,omitempty" validate:"required"`
 	UserName      string     `json:"user_name,omitempty"`
 	UserEmail     string     `json:"user_email,omitempty"`
@@ -204,6 +246,7 @@ type LicenseRequest struct {
 
 // Bind post-processes requests after unmarshalling.
 func (l *LicenseRequest) Bind(r *http.Request) error {
+	// validate the request
 	validate := validator.New()
 	return validate.Struct(l)
 }

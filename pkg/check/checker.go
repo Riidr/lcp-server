@@ -225,13 +225,14 @@ func (c *LicenseChecker) GetFreshLicense() error {
 	freshLicense := new(lic.License)
 	err := getJson(lHref, freshLicense)
 	if err != nil {
+		log.Errorf("Failed to parse the license: %v", err)
 		return err
 	}
 
 	// check the validity of the license using the json schema
 	bytes, err := json.Marshal(freshLicense)
 	if err != nil {
-		log.Errorf("Failed to parse the license: %v", err)
+		log.Errorf("Failed to marshal the license: %v", err)
 		return err
 	}
 	err = validateLicense(bytes)
@@ -262,7 +263,7 @@ func CheckResource(href string) error {
 	elapsed := time.Since(start)
 
 	if elapsed > expectedDuration {
-		log.Warningf("Access to %s took %s, which is quite long", href, elapsed)
+		log.Warningf("Access to %s took %.2fs, which is quite long", href, elapsed.Seconds())
 	}
 	return err
 }

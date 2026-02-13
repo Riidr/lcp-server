@@ -1,24 +1,27 @@
 name: lcp
 services:
-  #nginx:
-  #  image: nginx:1.27-alpine
-  #  restart: unless-stopped
-  #  ports:
-  #    - "80:80"
-  #    - "443:443"
-  #  volumes:
-  #    - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Reads the nginx configuration file in the config folder of the host machine
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
       # Uncomment for SSL certificates:
       # - ./config/ssl:/etc/ssl:ro
-   # depends_on:
-   #   server:
-   #     condition: service_started
-   # healthcheck:
-   #   test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
-   #   interval: 30s
-   #   timeout: 10s
-   #   retries: 3
-   #   start_period: 40s
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 
   # LCP Encrypt service
@@ -36,13 +39,13 @@ services:
       - ${LCPENCRYPT_STORAGE_PATH:-./resources}:/resources
     environment:
       - LCPENCRYPT_PROVIDER_URI=${LCPENCRYPT_PROVIDER_URI}
+      # Paths inside the container (mounted via volumes above)
       - LCPENCRYPT_INPUT_PATH=/input
       - LCPENCRYPT_STORAGE_PATH=/resources
       - LCPENCRYPT_STORAGE_URL=${LCPENCRYPT_STORAGE_URL}
       - LCPENCRYPT_LCPSERVER_URL=${LCPENCRYPT_LCPSERVER_URL}
-      - LCPENCRYPT_UUID=${LCPENCRYPT_UUID}
-      - LCPENCRYPT_USEFN=${LCPENCRYPT_USEFN}
       - LCPENCRYPT_VERBOSE=${LCPENCRYPT_VERBOSE}
+      - LCPENCRYPT_USE_FILENAME_AS=${LCPENCRYPT_USE_FILENAME_AS}
       - LCPENCRYPT_V2=${LCPENCRYPT_V2}
       - LCPENCRYPT_COVER=${LCPENCRYPT_COVER}
       - LCPENCRYPT_PDF_NO_META=${LCPENCRYPT_PDF_NO_META}
@@ -61,11 +64,11 @@ services:
       context: .
       target: final
     # Only accessible through nginx
-    #expose:
-    #  - "8989"
-    # Temporarily expose port for testing (nginx commented out)
-    ports:
-      - "8989:8989"
+    expose:
+      - "8989"
+    # Temporarily expose port for testing without nginx - to be commented
+    #ports:
+    #  - "8989:8989"
     volumes:
       # Activate if using SQLite
       #- db-data:/database
@@ -91,13 +94,18 @@ services:
       - LCPSERVER_STATUS_RENEWLINK=${LCPSERVER_STATUS_RENEWLINK}
       - LCPSERVER_DASHBOARD_EXCESSIVESHARINGTHRESHOLD=${LCPSERVER_DASHBOARD_EXCESSIVESHARINGTHRESHOLD}
       - LCPSERVER_DASHBOARD_LIMITTOLAST12MONTHS=${LCPSERVER_DASHBOARD_LIMITTOLAST12MONTHS}
+      # Path inside the container (mounted via volume above)
       - LCPSERVER_RESOURCES=/resources
-      # This one will have to become a Docker secret in production
-      - LCPSERVER_JWT_SECRETKEY=${LCPSERVER_JWT_SECRETKEY}
       # Path to the access file for basic authentication and JWT admin accounts
       - LCPSERVER_ACCESS_FILE=/run/secrets/access
+      # Path to MySQL password file for secure DSN construction
+      - MYSQL_PASSWORD_FILE=/run/secrets/mysql-password
+      # Path to JWT secret key file for secure token signing
+      - JWT_SECRETKEY_FILE=/run/secrets/jwt-secretkey
     secrets:
       - access
+      - mysql-password
+      - jwt-secretkey
     depends_on:
       mysql:
         condition: service_healthy
@@ -108,6 +116,17 @@ services:
       retries: 5
       start_period: 5s
 
+
+  # LCP Dashboard service
+  dashboard:
+    # TODO: build an EDRLab LCP Dashboard image supporting ARM64 and AMD64
+    image: llemeur/lcp-dashboard:latest-arm64
+    expose:
+      - "8080"
+    depends_on:
+      - server
+
+  # MySQL database for LCP Server
   mysql:
     image: mysql:8.4.7
     restart: always
@@ -227,5 +246,7 @@ secrets:
      file: config/mysql-root-password.txt
    mysql-password:
      file: config/mysql-password.txt
+   jwt-secretkey:
+     file: config/jwt-secretkey.txt
 
 

@@ -96,6 +96,8 @@ func (s *Server) setRoutes() *chi.Mux {
 					r.Put("/", a.UpdatePublication)    // PUT /publications/123
 					r.Delete("/", a.DeletePublication) // DELETE /publications/123
 				})
+				// get publication by AltID
+				r.Get("/altid/{altID}", a.GetPublicationByAltID) // GET /publications/altid/alt123	
 			})
 
 			// LicenseInfo, CRUD
@@ -124,18 +126,19 @@ func (s *Server) setRoutes() *chi.Mux {
 			r.Put("/revoke/{licenseID}", a.Revoke) // PUT /revoke/123
 		})
 
-		// Dashboard
-		r.Post("/dashboard/login", Login(s.Config)) // POST /dashboard/login
+		// Dashboard data
+		r.Post("/dashdata/login", Login(s.Config)) // POST /dashdata/login
 		// Require JWT Authentication
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware(s.Config))
 			r.Use(render.SetContentType(render.ContentTypeJSON))
-
-			r.Route("/dashboard", func(r chi.Router) {
-				r.Get("/data", a.GetDashboardData)            // GET /dashboard/data
-				r.Get("/overshared", a.GetOversharedLicenses) // GET /dashboard/overshared
-				r.Put("/revoke/{licenseID}", a.Revoke)        // PUT /dashboard/revoke/123
-
+			r.Route("/dashdata", func(r chi.Router) {
+				r.Get("/data", a.GetDashboardData)            // GET /dashdata/data
+				r.Get("/overshared", a.GetOversharedLicenses) // GET /dashdata/overshared
+				r.Put("/revoke/{licenseID}", a.Revoke)        // PUT /dashdata/revoke/123
+				// these two dashboard routes allow alt authentication and a streamlined publication structure
+				r.With(paginate).Get("/publications", a.ListPublications) 		// GET /dashdata/publications
+				r.Delete("/publications/{publicationID}", a.DeletePublication) // DELETE /dashdata/publication/123
 			})
 		})
 
