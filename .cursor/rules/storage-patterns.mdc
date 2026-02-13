@@ -1,0 +1,56 @@
+---
+description: Database and storage layer patterns using GORM
+globs: "pkg/stor/**/*.go"
+alwaysApply: false
+---
+
+# Storage Layer Patterns
+
+## Repository Pattern
+
+Each entity has a dedicated repository type with methods on it:
+
+```go
+type publicationStore struct{ db *gorm.DB }
+
+func (s publicationStore) Get(uuid string) (*Publication, error) { ... }
+func (s publicationStore) Create(pub *Publication) error { ... }
+func (s publicationStore) Update(pub *Publication) error { ... }
+```
+
+Access repositories via `Store` interface: `store.Publication()`, `store.License()`, `store.Event()`
+
+## Database Support
+
+- **SQLite** (default): WAL mode, foreign keys enabled
+- **MySQL**: build tag `MYSQL`, UTF8MB4 charset
+- **PostgreSQL**: build tag `POSTGRES`
+- DSN format: `dialect://connection_string` (e.g., `sqlite3:///data/lcp.db`)
+
+## Model Conventions
+
+- Use GORM `gorm.Model` fields or explicit `CreatedAt`, `UpdatedAt`, `DeletedAt`
+- Soft deletes: check `DeletedAt.Valid`, use `Unscoped()` to include deleted records
+- Validate with `go-playground/validator/v10` in a `Validate()` method
+
+## Query Patterns
+
+```go
+// Pagination
+s.db.Offset((pageNum - 1) * pageSize).Limit(pageSize).Find(&results)
+
+// Soft-deleted records
+s.db.Unscoped().Where("uuid = ?", uuid).First(&pub)
+
+// Security: cap results at 1000
+s.db.Limit(1000).Where("user_id = ?", userID).Find(&licenses)
+```
+
+## Schema Migration
+
+GORM AutoMigrate in `stor.Init()`:
+```go
+err = db.AutoMigrate(&Publication{}, &LicenseInfo{}, &Event{})
+```
+
+No versioned migrations — schema changes happen via GORM struct tags.

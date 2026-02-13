@@ -1,0 +1,74 @@
+---
+description: Go coding standards and style conventions for the LCP Server
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go Coding Standards
+
+## Copyright Header
+
+Every file starts with:
+```go
+// Copyright 2025 European Digital Reading Lab. All rights reserved.
+```
+
+## Import Organization
+
+Group imports with blank-line separators: stdlib, then third-party, then local packages.
+
+```go
+import (
+	"context"
+	"net/http"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/go-chi/chi/v5"
+
+	"github.com/edrlab/lcp-server/pkg/conf"
+	"github.com/edrlab/lcp-server/pkg/stor"
+)
+```
+
+Logrus is aliased as `log` when imported. Some files use stdlib `log` instead — don't confuse the two.
+
+## Naming Conventions
+
+- **Constants**: `UPPER_SNAKE_CASE` — `STATUS_READY`, `EVENT_REGISTER`, `ERROR_BASE_URL`
+- **Exported types**: `PascalCase` — `APICtrl`, `LicenseInfo`, `Publication`
+- **Unexported types**: `camelCase` — `dbStore`, `publicationStore`
+- **Constructors**: `New` prefix — `NewAPICtrl(...)`, `NewLicenseResponse(...)`
+- **Variables**: short, descriptive camelCase — `licInfo`, `pubInfo`, `certFile`
+
+## Error Handling
+
+Return early on errors. Use custom error renderers, don't wrap with `fmt.Errorf`:
+
+```go
+// ✅ GOOD
+if err != nil {
+    render.Render(w, r, ErrServer(err))
+    return
+}
+
+// ❌ BAD — don't swallow errors
+if err != nil {
+    // do nothing
+}
+```
+
+## Struct Tags
+
+Use `json` (snake_case), `gorm`, and `validate` tags:
+
+```go
+UUID        string `json:"uuid" validate:"required,uuid" gorm:"type:varchar(100);uniqueIndex"`
+ContentType string `json:"content_type" validate:"required" gorm:"type:varchar(100);index"`
+Start       *time.Time `json:"start,omitempty"`
+```
+
+## Comments
+
+- Package comments: describe the package purpose (e.g. `// Package api manages the api controllers` or `// The stor package manages the storage of our entities.`)
+- Function comments: start with function name (godoc) — `// NewAPICtrl returns a new API controller`
+- Use block comments (`/* */`) for RFC references or detailed explanations

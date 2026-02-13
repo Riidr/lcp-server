@@ -1,0 +1,48 @@
+---
+description: Logging and configuration conventions
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Logging & Configuration
+
+## Logging with Logrus
+
+When using logrus, import with the `log` alias:
+```go
+log "github.com/sirupsen/logrus"
+```
+
+Note: Some files use stdlib `log` instead of logrus (e.g., `authenticator.go`, `store.go`). Don't assume all `log.` calls are logrus.
+
+Use appropriate levels:
+- `log.Debug("List Publications")` — verbose tracing
+- `log.Println("Server starting on port " + port)` — informational
+- `log.Warningf("Registration halted: device %s already registered", device.ID)` — warnings
+- `log.Errorf("error binding request: %v", err)` — errors (use `%v` for error values)
+- `log.Fatalf("ListenAndServe error: %v", err)` — fatal, exits the process
+
+Don't use `log.Info()` or `log.Infof()` — this project uses `log.Println()` for info level.
+
+## Configuration
+
+Config is loaded from YAML + environment variables (`envconfig` with `LCPSERVER_` prefix):
+
+```go
+cf := &conf.Config{}
+envconfig.Process("lcpserver", cf)
+```
+
+Sensitive values come from Docker secrets files:
+- `LCPSERVER_ACCESS_FILE` — Basic auth credentials
+- `MYSQL_PASSWORD_FILE` — DB password
+- `JWT_SECRETKEY_FILE` — JWT signing key
+
+## Environment Variables
+
+- `LCPSERVER_CONFIG` — path to YAML config file
+- `LCPSERVER_PORT` — server port (default: 8989)
+- `LCPSERVER_DSN` — database connection string
+- `LCPSERVER_LOGLEVEL` — log level (debug/info/warn/error)
+- `LCPSERVER_PUBLICBASEURL` — public-facing base URL
+- `LCPENCRYPT_*` — encryption tool config

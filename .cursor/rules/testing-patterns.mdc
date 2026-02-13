@@ -1,0 +1,60 @@
+---
+description: Testing conventions and patterns
+globs: "**/*_test.go"
+alwaysApply: false
+---
+
+# Testing Patterns
+
+## Test Setup
+
+Use `TestMain` for shared setup with in-memory SQLite:
+
+```go
+var s Server
+
+func TestMain(m *testing.M) {
+    s.Config = setConfig()
+    s.Store, _ = stor.Init("sqlite3://file::memory:?cache=shared")
+    // ... load certificates, create router
+    code := m.Run()
+    os.Exit(code)
+}
+```
+
+## Test Naming
+
+- Prefix with `Test`: `TestPublications`, `TestGenerateLicense`
+- Use descriptive names reflecting what is tested
+
+## Test Helpers
+
+Create reusable helpers for common operations:
+
+```go
+func newPublication() *Publication { ... }       // generate test data
+func createPublication(t *testing.T) string { ... } // create + return ID
+func executeRequest(req *http.Request) *httptest.ResponseRecorder { ... }
+func checkResponseCode(t *testing.T, expected, actual int) { ... }
+```
+
+## Assertions
+
+Use standard library — no assertion frameworks:
+
+```go
+if response.Code != http.StatusOK {
+    t.Errorf("expected status 200, got %d", response.Code)
+}
+```
+
+- `t.Errorf()` for non-fatal failures
+- `t.Fatalf()` for critical failures that should stop the test
+- `t.Logf()` for informational output
+
+## Test Data
+
+- Use `faker` for random data: `faker.Lorem().Word()`, `faker.Internet().Url()`
+- Use `uuid.New().String()` for IDs
+- Test certificates in `pkg/test/cert/` and `config/`
+- Test fixtures in `test/` directory
