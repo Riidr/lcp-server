@@ -32,25 +32,21 @@ RUN apt-get update && apt-get install -y gcc libc6-dev libmupdf-dev
 # Copy source code to avoid mount issues with CGO and static libraries
 COPY . /src
 
+# Verify the production LCP patch files are present.
+# These are placed by lcp-patcher-v2/install.sh and must exist before building.
+# make_release.sh enforces this check locally; this catches any direct docker build invocations.
+RUN test -f ./pkg/lic/user_key_prod.go \
+ && test -f ./pkg/lic/userkey.h \
+ && test -f ./pkg/lic/libuserkey.a \
+ || { echo "ERROR: LCP production patch files missing in pkg/lic/. Run: ../lcp-patcher-v2/install.sh . linux-x64"; exit 1; }
+
 # Build lcpencrypt (architecture-independent)
 RUN echo "Building lcpencrypt..." && \
     CGO_ENABLED=1 go build -o /app/lcpencrypt ./cmd/lcpencrypt
 
-# Conditional copy and build based on architecture and LCP library availability
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-      echo "Building for AMD64 - checking for LCP library"; \
-      if [ -f "./config/lib/linux-amd64/libuserkey.a" ]; then \
-        echo "LCP library found, copying and building with PLCP support"; \
-        cp ./config/lib/linux-amd64/libuserkey.a ./pkg/lic/; \
-        CGO_ENABLED=1 go build -tags "PLCP,PGSQL" -o /app/lcpserver ./cmd/lcpserver; \
-      else \
-        echo "No LCP library found for AMD64, building without PLCP support"; \
-        CGO_ENABLED=0 go build -tags "PGSQL" -o /app/lcpserver ./cmd/lcpserver; \
-      fi; \
-    else \
-      echo "Building for $TARGETARCH without LCP library"; \
-      CGO_ENABLED=0 go build -tags "PGSQL" -o /app/lcpserver ./cmd/lcpserver; \
-    fi
+# Build lcpserver with production LCP support
+RUN echo "Building lcpserver with PLCP production support..." && \
+    CGO_ENABLED=1 go build -tags "PLCP,PGSQL" -o /app/lcpserver ./cmd/lcpserver
 
 ################################################################################
 # Create a new stage for running the application that contains the minimal
